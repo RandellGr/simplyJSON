@@ -79,7 +79,7 @@ class JsonList : public JsonValue {
 	std::vector<std::shared_ptr<JsonValue>>* value_ptr;
 public:
 	JsonList(const std::vector<std::shared_ptr<JsonValue>>& val): value(val), value_ptr(&value) {}
-	JsonList() {}
+	JsonList(): value(), value_ptr(&value) {}
 	std::string asString() const override { return "list placeholder"; };
 	JsonType type() const override { return JSON_VECTOR; }
 	std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
@@ -91,7 +91,7 @@ class JsonMap : public JsonValue {
 	std::unordered_map<std::string, std::shared_ptr<JsonValue>>* value_ptr;
 public:
 	JsonMap(const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& val ): value(val), value_ptr(&value) {}
-	JsonMap(){}
+	JsonMap(): value(0), value_ptr(&value) {}
 	std::string asString() const override { return "map placeholder"; }
 	JsonType type() const override { return JSON_MAP; }
 	const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }

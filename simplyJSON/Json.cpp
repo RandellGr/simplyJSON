@@ -21,6 +21,7 @@ Json::Json(std::fstream& filestream, const std::string& path) {
 	filestream.open(path, std::ios::in | std::ios::binary | std::ios::ate);
 	if (!filestream.is_open()) throw std::runtime_error("could not open filestream at " + path + "\n");
 	file_end = filestream.tellg();
+	filestream.seekg(0, std::ios::beg);
 	file_content.resize(file_end);
 	filestream.read(file_content.data(), file_end);
 	filestream.close();
@@ -91,7 +92,8 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 	json_stack				json_ptrs_stack;
 	json_value_sptr			inner_value_ptr		= nullptr;
 	json_value_sptr			last_value_ptr		= nullptr;
-	json_value_sptr			new_value_ptr			= nullptr;
+	json_value_sptr			new_value_ptr		= nullptr;
+	json_list*				list_ptr			= nullptr;
 
 	std::string				last_literal; 
 	std::string				last_key;
@@ -106,16 +108,17 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			if (json_ptrs_stack.empty()) {
 				//currently in root map
 				current_map_ptr = &root;
+				json_ptrs_stack.push(std::make_shared<JsonMap>(root));
 			}
 			else if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
 				//top of the stack is json list
-				auto vec = json_ptrs_stack.top()->getListPtr();
-				vec->push_back(std::make_shared<JsonMap>());
-				inner_value_ptr = vec->back();
+				list_ptr = json_ptrs_stack.top()->getListPtr();
+				list_ptr->push_back(std::make_shared<JsonMap>());
+				inner_value_ptr = list_ptr->back();
 				json_ptrs_stack.push(inner_value_ptr);
 				current_map_ptr = inner_value_ptr->getMapPtr();
 			}
-			else if (json_ptrs_stack.top()->type() == JSON_MAP) {
+			else {
 				//top of the stack is json map
 				(*current_map_ptr)[last_key] = std::make_shared<JsonMap>();
 				inner_value_ptr = (*current_map_ptr)[last_key];
@@ -141,9 +144,9 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 		case SBRACKETS_OPEN:
 			new_value_ptr = std::make_shared<JsonList>();
 			if (!json_ptrs_stack.empty() && json_ptrs_stack.top()->type() == JSON_VECTOR) {
-				auto vec = json_ptrs_stack.top()->getListPtr();
-				vec->push_back(new_value_ptr);
-				inner_value_ptr = vec->back();
+				list_ptr = json_ptrs_stack.top()->getListPtr();
+				list_ptr->push_back(new_value_ptr);
+				inner_value_ptr = list_ptr->back();
 			}
 			else {
 				(*current_map_ptr)[last_key] = new_value_ptr;
@@ -154,8 +157,8 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			break;
 		case SBRACKETS_CLOSE:
 			if (prev_token.type == LITERAL || prev_token.type == QUOTATION) {
-				auto vec = json_ptrs_stack.top()->getListPtr();
-				vec->push_back(last_value_ptr);
+				list_ptr = json_ptrs_stack.top()->getListPtr();
+				list_ptr->push_back(last_value_ptr);
 			}
 			if (!json_ptrs_stack.empty()) json_ptrs_stack.pop();
 			array_flag = false;
@@ -163,8 +166,8 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 		case COMMA:
 			if (prev_token.type == SBRACKETS_CLOSE) break;
 			if (array_flag) {
-				auto vec = json_ptrs_stack.top()->getListPtr();
-				vec->push_back(last_value_ptr);
+				list_ptr = json_ptrs_stack.top()->getListPtr();
+				list_ptr->push_back(last_value_ptr);
 			}
 			else{
 				(*current_map_ptr)[last_key] = last_value_ptr;
