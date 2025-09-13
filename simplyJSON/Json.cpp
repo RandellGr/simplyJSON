@@ -199,3 +199,21 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 		prev_token = token;
 	}
 }
+
+void Json::writeToFile(std::fstream& file_stream, const std::string& path) {
+	file_stream.open(path, std::ios::out | std::ios::binary);
+	if (!file_stream.is_open()) throw std::runtime_error("could not open filestream at " + path + "\n");
+	std::string contents = stringDump();
+	file_stream.write(contents.data(), contents.size());
+	file_stream.close();
+}
+
+std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) {
+	return root[key];
+}
+const std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) const {
+	auto it = root.find(key);
+	if (it == root.end()) throw std::out_of_range("Key not found in JSON object");
+	return it->second;
+}
+

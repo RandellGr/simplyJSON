@@ -31,7 +31,7 @@ struct JsonToken
 class JsonValue {
 public:
 	virtual ~JsonValue() = default;
-	virtual std::string asString() const = NULL;
+	virtual std::string asString(int offset = 0) const = NULL;
 	virtual JsonType type() const = NULL;
 	
 	virtual double getDouble() const { throw std::bad_cast(); }
@@ -50,7 +50,7 @@ class JsonString : public JsonValue {
 	std::string* value_ptr = nullptr;
 public:
 	JsonString(const std::string& val) : value(val), value_ptr(&value){}
-	std::string asString() const override { return "\"" + value + "\""; }
+	std::string asString(int offset = 0) const override { return "\"" + value + "\""; }
 	JsonType type() const override { return JSON_STRING; }
 	std::string getString() const override { return value; }
 	std::string* getStringPtr() const override { return value_ptr; }
@@ -60,7 +60,7 @@ class JsonDouble : public JsonValue {
 	double value;
 public:
 	JsonDouble(const double val) : value(val){}
-	std::string asString() const override { return std::to_string(value); }
+	std::string asString(int offset = 0) const override { return std::to_string(value); }
 	JsonType type() const override { return JSON_DOUBLE; }
 	double getDouble() const override { return value; }
 };
@@ -69,7 +69,7 @@ class JsonBool : public JsonValue {
 	bool value;
 public:
 	JsonBool(const bool val) : value(val){}
-	std::string asString() const override { return value ? "true" : "false"; }
+	std::string asString(int offset = 0) const override { return value ? "true" : "false"; }
 	JsonType type() const override { return JSON_BOOL; }
 	bool getBool() const override { return value; }
 };
@@ -80,8 +80,18 @@ class JsonList : public JsonValue {
 public:
 	JsonList(const std::vector<std::shared_ptr<JsonValue>>& val): value(val), value_ptr(&value) {}
 	JsonList(): value(), value_ptr(&value) {}
-	std::string asString() const override { return "list placeholder"; };
 	JsonType type() const override { return JSON_VECTOR; }
+	std::string asString(int offset = 0) const override {
+		std::string output;
+		output += "[";
+		for (auto& val : value) {
+			output += val->asString(0) + ", ";
+		}
+		output.pop_back();
+		output.pop_back();
+		output += "]";
+		return output;
+	}
 	std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
 	std::vector<std::shared_ptr<JsonValue>>* getListPtr() const override { return value_ptr; }
 };
@@ -92,8 +102,22 @@ class JsonMap : public JsonValue {
 public:
 	JsonMap(const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& val ): value(val), value_ptr(&value) {}
 	JsonMap(): value(0), value_ptr(&value) {}
-	std::string asString() const override { return "map placeholder"; }
 	JsonType type() const override { return JSON_MAP; }
+	std::string asString(int offset = 0) const override {
+		std::string output;
+		std::string offset_str;
+		for (int i = 0; i != offset; ++i) {
+			offset_str += "    ";
+		}
+		output += "{";
+		for (auto& [key, val] : value) {
+			output += "\n" + offset_str + "    \"" + key + "\"" + " : " + val->asString(offset + 1) + ", ";
+		}
+		output.pop_back();
+		output.pop_back();
+		output += "\n" + offset_str + "}";
+		return output;
+	}
 	const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }
 	std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const override { return value_ptr; }
 };
@@ -104,9 +128,22 @@ public:
 	Json(std::fstream& file_stream, const std::string& path);
 	Json(const std::string& json_as_string);
 
-	JsonValue* operator[] (const std::string& key);
+	std::shared_ptr<JsonValue>& operator[] (const std::string& key);
+	const std::shared_ptr<JsonValue>& operator[] (const std::string& key) const;
 
-	std::string stringDump();
+	void writeToFile(std::fstream& file_stream, const std::string& path);
+
+	std::string stringDump() const{
+		std::string output;
+		output += "{";
+		for (auto& [key, val] : root) {
+			output += "\n    \"" + key + "\"" + " : " + val->asString(1) + ", ";
+		}
+		output.pop_back();
+		output.pop_back();
+		output += "\n}";
+		return output;
+	};
 private:
 	std::vector<JsonToken> tokenize(const std::string& json_string);
 	void parse(const std::vector<JsonToken>& tokens);
