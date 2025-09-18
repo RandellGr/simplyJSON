@@ -123,7 +123,7 @@ public:
 };
 
 class Json {
-	std::unordered_map<std::string, std::shared_ptr<JsonValue>> root;
+	std::shared_ptr<JsonMap> root;
 public:
 	Json(std::fstream& file_stream, const std::string& path);
 	Json(const std::string& json_as_string);
@@ -134,15 +134,7 @@ public:
 	void writeToFile(std::fstream& file_stream, const std::string& path);
 
 	std::string stringDump() const{
-		std::string output;
-		output += "{";
-		for (auto& [key, val] : root) {
-			output += "\n    \"" + key + "\"" + " : " + val->asString(1) + ", ";
-		}
-		output.pop_back();
-		output.pop_back();
-		output += "\n}";
-		return output;
+		return root->asString(0);
 	};
 private:
 	std::vector<JsonToken> tokenize(const std::string& json_string);

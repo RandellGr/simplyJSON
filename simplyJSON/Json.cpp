@@ -14,6 +14,8 @@ bool is_token(char input) {
 }
 
 Json::Json(std::fstream& filestream, const std::string& path) {
+	root = std::make_shared<JsonMap>();
+
 	size_t file_end;
 	std::string file_content;
 	std::vector<JsonToken> tokens;
@@ -33,6 +35,7 @@ Json::Json(std::fstream& filestream, const std::string& path) {
 }
 
 Json::Json(const std::string& json_string) {
+	root = std::make_shared<JsonMap>();
 	std::vector<JsonToken> tokens;
 
 	tokens = tokenize(json_string);
@@ -88,7 +91,7 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 	using json_stack = std::stack<std::shared_ptr<JsonValue>>;
 	using json_value_sptr = std::shared_ptr<JsonValue>;
 
-	json_map*				current_map_ptr		= &root;
+	json_map*				current_map_ptr		= root->getMapPtr();
 	json_stack				json_ptrs_stack;
 	json_value_sptr			inner_value_ptr		= nullptr;
 	json_value_sptr			last_value_ptr		= nullptr;
@@ -106,9 +109,7 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 		switch (token.type) {
 		case CBRACKETS_OPEN: {
 			if (json_ptrs_stack.empty()) {
-				//currently in root map
-				current_map_ptr = &root;
-				json_ptrs_stack.push(std::make_shared<JsonMap>(root));
+				json_ptrs_stack.push(root);
 			}
 			else if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
 				//top of the stack is json list
@@ -131,14 +132,19 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			if (prev_token.type == QUOTATION || prev_token.type == LITERAL) {
 				(*current_map_ptr)[last_key] = last_value_ptr;
 			}
-			if (json_ptrs_stack.empty()) break;
-			json_ptrs_stack.pop();
-			if (json_ptrs_stack.empty()) break;
-			if (json_ptrs_stack.top()->type() == JSON_MAP) {
-				current_map_ptr = json_ptrs_stack.top()->getMapPtr();
+
+			if (!json_ptrs_stack.empty()) {
+				json_ptrs_stack.pop();
+			}
+
+			if (!json_ptrs_stack.empty()) {
+				if (json_ptrs_stack.top()->type() == JSON_MAP) {
+					current_map_ptr = json_ptrs_stack.top()->getMapPtr();
+				}
 			}
 			else {
-				current_map_ptr = &root;
+				// back at top level
+				current_map_ptr = root->getMapPtr();
 			}
 			break;
 		case SBRACKETS_OPEN:
@@ -209,11 +215,12 @@ void Json::writeToFile(std::fstream& file_stream, const std::string& path) {
 }
 
 std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) {
-	return root[key];
+	return (*root->getMapPtr())[key];
 }
 const std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) const {
-	auto it = root.find(key);
-	if (it == root.end()) throw std::out_of_range("Key not found in JSON object");
+	auto& map = *root->getMapPtr();
+	auto it = map.find(key);
+	if (it == map.end()) throw std::out_of_range("Key not found in JSON object");
 	return it->second;
 }
 
