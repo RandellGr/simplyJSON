@@ -102,7 +102,6 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 	std::string				last_key;
 
 	bool					string_flag			= false;
-	bool					array_flag			= false;
 	JsonToken				prev_token;
 
 	for (JsonToken token : tokens) {
@@ -159,7 +158,6 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 				inner_value_ptr = (*current_map_ptr)[last_key];
 			}
 			json_ptrs_stack.push(inner_value_ptr);
-			array_flag = true;
 			break;
 		case SBRACKETS_CLOSE:
 			if (prev_token.type == LITERAL || prev_token.type == QUOTATION) {
@@ -167,11 +165,10 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 				list_ptr->push_back(last_value_ptr);
 			}
 			if (!json_ptrs_stack.empty()) json_ptrs_stack.pop();
-			array_flag = false;
 			break;
 		case COMMA:
 			if (prev_token.type == SBRACKETS_CLOSE) break;
-			if (array_flag) {
+			if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
 				list_ptr = json_ptrs_stack.top()->getListPtr();
 				list_ptr->push_back(last_value_ptr);
 			}
@@ -195,6 +192,9 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			}
 			else if (token.value == "false") {
 				last_value_ptr = std::make_shared<JsonBool>(false);
+			}
+			else if (token.value == "null") {
+				last_value_ptr = std::make_shared<JsonNull>();
 			}
 			else {
 				last_value_ptr = std::make_shared<JsonDouble>(std::stod(token.value));

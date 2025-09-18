@@ -7,7 +7,8 @@ enum JsonType
 	JSON_DOUBLE,
 	JSON_STRING,
 	JSON_VECTOR,
-	JSON_MAP
+	JSON_MAP,
+	JSON_NULL
 };
 
 enum JsonTokenEnum
@@ -43,6 +44,13 @@ public:
 	virtual std::string* getStringPtr() const { throw std::bad_cast(); }
 	virtual std::vector<std::shared_ptr<JsonValue>>* getListPtr() const { throw std::bad_cast(); }
 	virtual std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const { throw std::bad_cast(); }
+};
+
+class JsonNull : public JsonValue {
+public:
+	JsonNull() {};
+	std::string asString(int offset = 0) const override { return "null"; }
+	JsonType type() const override { return JSON_NULL; }
 };
 
 class JsonString : public JsonValue {
@@ -85,7 +93,7 @@ public:
 		std::string output;
 		output += "[";
 		for (auto& val : value) {
-			output += val->asString(0) + ", ";
+			output += val->asString(offset + 1) + ", ";
 		}
 		output.pop_back();
 		output.pop_back();
@@ -109,7 +117,7 @@ public:
 		for (int i = 0; i != offset; ++i) {
 			offset_str += "    ";
 		}
-		output += "{";
+		output += "{\n";
 		for (auto& [key, val] : value) {
 			output += "\n" + offset_str + "    \"" + key + "\"" + " : " + val->asString(offset + 1) + ", ";
 		}
