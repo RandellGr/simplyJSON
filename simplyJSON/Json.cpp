@@ -1,6 +1,8 @@
 #pragma once
 #include "Json.h"
 
+using namespace smpj;
+
 bool is_token(char input) {
 	if (
 		input == '{' || input == '}' ||
@@ -11,6 +13,42 @@ bool is_token(char input) {
 		return true;
 	}
 	else return false;
+}
+
+bool is_json_number(const std::string& input) {
+	if (input.empty()) return false;
+	size_t i = 0;
+	size_t input_size = input.size();
+
+	if (input[i] == '-') {
+		i++; if (i == input_size) return false;
+	}
+
+	if (input[i] == '0') {
+		i++; if (i < input_size && isdigit(input[i])) return false;
+	}
+	else if (isdigit(input[i])) {
+		if (input[i] == '0') return false;
+		while (i < input_size && isdigit(input[i])) i++;
+	}
+	else {
+		return false;
+	}
+
+	if (i < input_size && input[i] == '.') {
+		i++;
+		if (i == input_size || !isdigit(input[i])) return false;
+		while (i < input_size && isdigit(input[i])) i++;
+	}
+
+	if (i < input_size && (input[i] == 'e' || input[i] == 'E')) {
+		i++;
+		if (i < input_size && (input[i] == '+' || input[i] == '-')) i++;
+		if (i == input_size || !isdigit(input[i])) return false; 
+		while (i < input_size && isdigit(input[i])) i++; 
+	}
+
+	return i == input_size;
 }
 
 Json::Json(std::fstream& filestream, const std::string& path) {
@@ -31,6 +69,8 @@ Json::Json(std::fstream& filestream, const std::string& path) {
 	file_content.erase(remove(file_content.begin(), file_content.end(), '\r'), file_content.end());
 
 	tokens = tokenize(file_content);
+	auto error = validate(tokens);
+	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
 	parse(tokens);
 }
 
@@ -73,6 +113,7 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 			break;
 		default:
 			while (true) {
+				if (tokens.back().type != QUOTATION && json_string[i] == ' ') break;
 				working_buffer += json_string[i];
 				if (is_token(json_string[i + 1])) break;
 				i++;
@@ -83,6 +124,90 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 		}
 	}
 	return tokens; 
+}
+
+Error Json::validate(const std::vector<JsonToken>& tokens) {
+	if (tokens[0].type != CBRACKETS_OPEN) return { "top level object is not found" , true };
+	std::stack<TokenContext> context;
+	bool string_flag = false;
+
+	size_t token_position = 0;
+	JsonToken prev_token;
+
+	for (JsonToken token : tokens) {
+		switch (token.type) {
+		case CBRACKETS_OPEN:
+			context.push(CTX_OBJECT);
+			break;
+		case CBRACKETS_CLOSE:
+			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
+				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE &&
+				prev_token.type != CBRACKETS_OPEN)
+				return { "value is not found at token: " + std::to_string(token_position), true };
+			if (context.top() == CTX_VALUE) context.pop();
+			if (context.top() != CTX_OBJECT) return { "object closing without opening at token: " + std::to_string(token_position), true };
+			context.pop();
+			break;
+		case SBRACKETS_OPEN:
+			context.push(CTX_LIST);
+			break;
+		case SBRACKETS_CLOSE:
+			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
+				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE &&
+				prev_token.type != SBRACKETS_OPEN)
+				return { "value is not found at token: " + std::to_string(token_position), true };
+			if (prev_token.type == COMMA) return { "trailing comma in list at token: " + std::to_string(token_position), true };
+			if (context.top() != CTX_LIST) return { "list closing without opening at token: " + std::to_string(token_position), true };
+			context.pop();
+			break;
+		case QUOTATION:
+			if (!string_flag) {
+				context.push(CTX_STRING);
+				string_flag = !string_flag;
+				break;
+			}
+			if (context.top() != CTX_STRING) return { "closing string literal without opening at token: " + std::to_string(token_position), true };
+			context.pop();
+			string_flag = !string_flag;
+			// нужен патч для кейса {"a" "a"}
+			break;
+		case COMMA: {
+			auto top = context.top();
+			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
+				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE) 
+				return { "value is not found at token: " + std::to_string(token_position), true };
+			if (top != CTX_VALUE && top != CTX_LIST) return { "inproper comma placement at token: " + std::to_string(token_position), true };
+			if (top == CTX_VALUE) {
+				context.pop();
+				context.push(CTX_KEY);
+			}
+			break;
+		}
+		case COLON: {
+			auto top = context.top();
+			if (prev_token.type != QUOTATION) return { "key is not a string at token: " + std::to_string(token_position), true };
+			if (top != CTX_KEY && top != CTX_OBJECT) return { "inproper colon placement at token: " + std::to_string(token_position), true };
+			if (top == CTX_KEY) context.pop();
+			context.push(CTX_VALUE);
+			break;
+		}
+		case LITERAL:
+			if (!string_flag) {
+				if (token.value != "false" && token.value != "true" &&
+					token.value != "null"  && !is_json_number(token.value))
+					return { "invalid literal: " + token.value +" at token: " + std::to_string(token_position), true };
+			}
+			break;
+		}
+		token_position++;
+		prev_token = token;
+	}
+	if (context.empty()) {
+		return { "", false };
+	}
+	else {
+		return { "no closing bracket found!", true };
+	}
 }
 
 void Json::parse(const std::vector<JsonToken>& tokens) {
@@ -167,7 +292,7 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			if (!json_ptrs_stack.empty()) json_ptrs_stack.pop();
 			break;
 		case COMMA:
-			if (prev_token.type == SBRACKETS_CLOSE) break;
+			if (prev_token.type == SBRACKETS_CLOSE || prev_token.type == CBRACKETS_CLOSE) break;
 			if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
 				list_ptr = json_ptrs_stack.top()->getListPtr();
 				list_ptr->push_back(last_value_ptr);
