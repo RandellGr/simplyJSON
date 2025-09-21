@@ -3,18 +3,6 @@
 
 using namespace smpj;
 
-bool is_token(char input) {
-	if (
-		input == '{' || input == '}' ||
-		input == '[' || input == ']' ||
-		input == '"' || input == ',' ||
-		input == ':'
-		) {
-		return true;
-	}
-	else return false;
-}
-
 bool is_json_number(const std::string& input) {
 	if (input.empty()) return false;
 	size_t i = 0;
@@ -65,8 +53,6 @@ Json::Json(std::fstream& filestream, const std::string& path) {
 	file_content.resize(file_end);
 	filestream.read(file_content.data(), file_end);
 	filestream.close();
-	file_content.erase(remove(file_content.begin(), file_content.end(), '\n'), file_content.end());
-	file_content.erase(remove(file_content.begin(), file_content.end(), '\r'), file_content.end());
 
 	tokens = tokenize(file_content);
 	auto error = validate(tokens);
@@ -104,20 +90,27 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 			tokens.push_back({ COMMA, "" });
 			break;
 		case '"':
+			if (tokens.back().type == QUOTATION) {
+				tokens.push_back({ LITERAL, ""});
+				tokens.push_back({ QUOTATION, "" });
+				break;
+			}
 			tokens.push_back({ QUOTATION, "" });
 			break;
 		case ':':
 			tokens.push_back({ COLON, "" });
 			break;
-		case ' ':
+		case ' ' :
+		case '\n':
+		case '\r':
+		case '\t':
 			break;
 		default:
-			while (true) {
-				if (tokens.back().type != QUOTATION && json_string[i] == ' ') break;
-				working_buffer += json_string[i];
-				if (is_token(json_string[i + 1])) break;
-				i++;
-			}
+			auto it = json_string.find_first_of("{}[],\":\n\r\t", i);
+			if (it == std::string::npos) it = json_string.size();
+			working_buffer.resize(it - i);
+			std::copy(json_string.begin() + i, json_string.begin() + it, working_buffer.data());
+			i = it - 1;
 			tokens.push_back({ LITERAL, working_buffer });
 			working_buffer.clear();
 			break;
@@ -160,17 +153,22 @@ Error Json::validate(const std::vector<JsonToken>& tokens) {
 			if (context.top() != CTX_LIST) return { "list closing without opening at token: " + std::to_string(token_position), true };
 			context.pop();
 			break;
-		case QUOTATION:
+		case QUOTATION: {
+			auto top = context.top();
 			if (!string_flag) {
+				if (prev_token.type == QUOTATION) {
+					return { "unexpected string at token: " + std::to_string(token_position), true };
+				}
 				context.push(CTX_STRING);
 				string_flag = !string_flag;
 				break;
 			}
-			if (context.top() != CTX_STRING) return { "closing string literal without opening at token: " + std::to_string(token_position), true };
+			if (top != CTX_STRING) return { "closing string literal without opening at token: " + std::to_string(token_position), true };
 			context.pop();
 			string_flag = !string_flag;
 			// нужен патч для кейса {"a" "a"}
 			break;
+		}
 		case COMMA: {
 			auto top = context.top();
 			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
@@ -192,11 +190,10 @@ Error Json::validate(const std::vector<JsonToken>& tokens) {
 			break;
 		}
 		case LITERAL:
-			if (!string_flag) {
-				if (token.value != "false" && token.value != "true" &&
-					token.value != "null"  && !is_json_number(token.value))
+			if (!string_flag && 
+			   (token.value != "false" && token.value != "true" &&
+				token.value != "null"  && !is_json_number(token.value)))
 					return { "invalid literal: " + token.value +" at token: " + std::to_string(token_position), true };
-			}
 			break;
 		}
 		token_position++;
