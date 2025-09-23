@@ -1,5 +1,7 @@
 #pragma once
 #include "Common.h"
+#include "Template.h"
+
 namespace smpj {
 	enum JsonType
 	{
@@ -47,6 +49,7 @@ namespace smpj {
 		virtual ~JsonValue() = default;
 		virtual std::string asString(int offset = 0) const = NULL;
 		virtual JsonType type() const = NULL;
+		virtual std::shared_ptr<JsonValue> clone() const = 0;
 
 		virtual double getDouble() const { throw std::bad_cast(); }
 		virtual bool   getBool() const { throw std::bad_cast(); }
@@ -64,6 +67,7 @@ namespace smpj {
 		JsonNull() {};
 		std::string asString(int offset = 0) const override { return "null"; }
 		JsonType type() const override { return JSON_NULL; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonNull>(); }
 	};
 
 	class JsonString : public JsonValue {
@@ -73,6 +77,7 @@ namespace smpj {
 		JsonString(const std::string& val) : value(val), value_ptr(&value) {}
 		std::string asString(int offset = 0) const override { return "\"" + value + "\""; }
 		JsonType type() const override { return JSON_STRING; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonString>(value); }
 		std::string getString() const override { return value; }
 		std::string* getStringPtr() const override { return value_ptr; }
 	};
@@ -83,6 +88,7 @@ namespace smpj {
 		JsonDouble(const double val) : value(val) {}
 		std::string asString(int offset = 0) const override;
 		JsonType type() const override { return JSON_DOUBLE; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonDouble>(value); }
 		double getDouble() const override { return value; }
 	};
 
@@ -92,6 +98,7 @@ namespace smpj {
 		JsonBool(const bool val) : value(val) {}
 		std::string asString(int offset = 0) const override { return value ? "true" : "false"; }
 		JsonType type() const override { return JSON_BOOL; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonBool>(value); }
 		bool getBool() const override { return value; }
 	};
 
@@ -102,6 +109,7 @@ namespace smpj {
 		JsonList(const std::vector<std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonList() : value(), value_ptr(&value) {}
 		JsonType type() const override { return JSON_VECTOR; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonList>(value); }
 		std::string asString(int offset = 0) const override;
 		std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
 		std::vector<std::shared_ptr<JsonValue>>* getListPtr() const override { return value_ptr; }
@@ -114,6 +122,7 @@ namespace smpj {
 		JsonMap(const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonMap() : value(0), value_ptr(&value) {}
 		JsonType type() const override { return JSON_MAP; }
+		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonMap>(value); }
 		std::string asString(int offset = 0) const override;
 		const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }
 		std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const override { return value_ptr; }
@@ -140,4 +149,43 @@ namespace smpj {
 		Error validate(const std::vector<JsonToken>& tokens);
 	};
 
+	template<typename Type>
+	std::shared_ptr<JsonValue> makeJson(Type&& input) {
+		using Decayed = std::decay_t<Type>;
+
+		if constexpr (std::is_same_v<Decayed, std::shared_ptr<JsonValue>>) {
+			return input;
+		}
+		else if constexpr (std::is_base_of_v<JsonValue, Decayed>) {
+			return input.clone();
+		}
+		else if constexpr (std::is_same_v<Decayed, bool>) {
+			return std::make_shared<JsonBool>(input);
+		}
+		else if constexpr (std::is_arithmetic_v<Decayed>) {
+			return std::make_shared<JsonDouble>(static_cast<double>(input));
+		}
+		else if constexpr (std::is_same_v<Decayed, std::string>) {
+			return std::make_shared<JsonString>(input);
+		}
+		else if constexpr (is_vector<Decayed>::value) {
+			auto list = std::make_shared<JsonList>();
+			for (auto&& element : input) {
+				list->getListPtr()->push_back(makeJson(std::forward<decltype(element)>(element)));
+			}
+			return list;
+		}
+		else if constexpr (is_umap<Decayed>::value) {
+			auto object = std::make_shared<JsonMap>();
+			for (auto&& [key, val] : input) {
+				object->getMapPtr()->emplace(key, makeJson(std::forward<decltype(val)>(val)));
+			}
+			return object;
+		}
+		else
+		{
+			static_assert(always_false<Type>, "Type is not JSON-convertible");
+		}
+
+	}
 }

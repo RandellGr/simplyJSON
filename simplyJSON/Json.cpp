@@ -71,6 +71,7 @@ Json::Json(const std::string& json_string) {
 std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	std::vector<JsonToken> tokens;
 	std::string working_buffer;
+	bool string_flag = false;
 
 	for (int i = 0; i != json_string.size(); ++i) {
 		switch (json_string[i]) {
@@ -90,6 +91,7 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 			tokens.push_back({ COMMA, "" });
 			break;
 		case '"':
+			string_flag = !string_flag;
 			if (tokens.back().type == QUOTATION) {
 				tokens.push_back({ LITERAL, ""});
 				tokens.push_back({ QUOTATION, "" });
@@ -106,7 +108,10 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 		case '\t':
 			break;
 		default:
-			auto it = json_string.find_first_of("{}[],\":\n\r\t", i);
+			size_t it;
+			if (string_flag) it = json_string.find_first_of("{}[],\":\n\r\t", i);
+			else			 it = json_string.find_first_of("{}[],\":\n\r\t ", i);
+			
 			if (it == std::string::npos) it = json_string.size();
 			working_buffer.resize(it - i);
 			std::copy(json_string.begin() + i, json_string.begin() + it, working_buffer.data());
@@ -415,3 +420,4 @@ std::string JsonDouble::asString(int offset) const {
 	}
 	return output;
 }
+
