@@ -166,7 +166,6 @@ Error Json::validate(const std::vector<JsonToken>& tokens) {
 			if (top != CTX_STRING) return { "closing string literal without opening at token: " + std::to_string(token_position), true };
 			context.pop();
 			string_flag = !string_flag;
-			// нужен патч для кейса {"a" "a"}
 			break;
 		}
 		case COMMA: {
@@ -210,7 +209,7 @@ Error Json::validate(const std::vector<JsonToken>& tokens) {
 void Json::parse(const std::vector<JsonToken>& tokens) {
 	using json_map = std::unordered_map<std::string, std::shared_ptr<JsonValue>>;
 	using json_list = std::vector<std::shared_ptr<JsonValue>>;
-	using json_stack = std::stack<std::shared_ptr<JsonValue>>;
+	using json_stack = std::vector<std::shared_ptr<JsonValue>>;
 	using json_value_sptr = std::shared_ptr<JsonValue>;
 
 	json_map*				current_map_ptr		= root->getMapPtr();
@@ -226,25 +225,37 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 	bool					string_flag			= false;
 	JsonToken				prev_token;
 
+	auto recompute_current_map = [&]() {
+		if (json_ptrs_stack.empty()) {
+			current_map_ptr = root->getMapPtr();
+			return;
+		}
+		for (int i = json_ptrs_stack.size() - 1; i >= 0; --i) {
+			if (json_ptrs_stack[i]->type() == JSON_MAP) {
+				current_map_ptr = json_ptrs_stack[i]->getMapPtr();
+				return;
+			}
+		}
+		current_map_ptr = root->getMapPtr();
+	};
+
 	for (JsonToken token : tokens) {
 		switch (token.type) {
 		case CBRACKETS_OPEN: {
 			if (json_ptrs_stack.empty()) {
-				json_ptrs_stack.push(root);
+				json_ptrs_stack.push_back(root);
 			}
-			else if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
-				//top of the stack is json list
-				list_ptr = json_ptrs_stack.top()->getListPtr();
+			else if (json_ptrs_stack.back()->type() == JSON_VECTOR) {
+				list_ptr = json_ptrs_stack.back()->getListPtr();
 				list_ptr->push_back(std::make_shared<JsonMap>());
 				inner_value_ptr = list_ptr->back();
-				json_ptrs_stack.push(inner_value_ptr);
+				json_ptrs_stack.push_back(inner_value_ptr);
 				current_map_ptr = inner_value_ptr->getMapPtr();
 			}
 			else {
-				//top of the stack is json map
 				(*current_map_ptr)[last_key] = std::make_shared<JsonMap>();
 				inner_value_ptr = (*current_map_ptr)[last_key];
-				json_ptrs_stack.push(inner_value_ptr);
+				json_ptrs_stack.push_back(inner_value_ptr);
 				current_map_ptr = inner_value_ptr->getMapPtr();
 			}
 			break;
@@ -255,23 +266,15 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			}
 
 			if (!json_ptrs_stack.empty()) {
-				json_ptrs_stack.pop();
+				json_ptrs_stack.pop_back();
 			}
-
-			if (!json_ptrs_stack.empty()) {
-				if (json_ptrs_stack.top()->type() == JSON_MAP) {
-					current_map_ptr = json_ptrs_stack.top()->getMapPtr();
-				}
-			}
-			else {
-				// back at top level
-				current_map_ptr = root->getMapPtr();
-			}
+			recompute_current_map();
 			break;
+
 		case SBRACKETS_OPEN:
 			new_value_ptr = std::make_shared<JsonList>();
-			if (!json_ptrs_stack.empty() && json_ptrs_stack.top()->type() == JSON_VECTOR) {
-				list_ptr = json_ptrs_stack.top()->getListPtr();
+			if (!json_ptrs_stack.empty() && json_ptrs_stack.back()->type() == JSON_VECTOR) {
+				list_ptr = json_ptrs_stack.back()->getListPtr();
 				list_ptr->push_back(new_value_ptr);
 				inner_value_ptr = list_ptr->back();
 			}
@@ -279,31 +282,37 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 				(*current_map_ptr)[last_key] = new_value_ptr;
 				inner_value_ptr = (*current_map_ptr)[last_key];
 			}
-			json_ptrs_stack.push(inner_value_ptr);
+			json_ptrs_stack.push_back(inner_value_ptr);
 			break;
+
 		case SBRACKETS_CLOSE:
 			if (prev_token.type == LITERAL || prev_token.type == QUOTATION) {
-				list_ptr = json_ptrs_stack.top()->getListPtr();
+				list_ptr = json_ptrs_stack.back()->getListPtr();
 				list_ptr->push_back(last_value_ptr);
 			}
-			if (!json_ptrs_stack.empty()) json_ptrs_stack.pop();
+			if (!json_ptrs_stack.empty()) json_ptrs_stack.pop_back();
+			recompute_current_map();
 			break;
+
 		case COMMA:
 			if (prev_token.type == SBRACKETS_CLOSE || prev_token.type == CBRACKETS_CLOSE) break;
-			if (json_ptrs_stack.top()->type() == JSON_VECTOR) {
-				list_ptr = json_ptrs_stack.top()->getListPtr();
+			if (json_ptrs_stack.back()->type() == JSON_VECTOR) {
+				list_ptr = json_ptrs_stack.back()->getListPtr();
 				list_ptr->push_back(last_value_ptr);
 			}
-			else{
+			else {
 				(*current_map_ptr)[last_key] = last_value_ptr;
 			}
 			break;
+
 		case COLON:
 			last_key = last_literal;
 			break;
+
 		case QUOTATION:
 			string_flag = !string_flag;
 			break;
+
 		case LITERAL: {
 			last_literal = token.value;
 			if (string_flag) {
@@ -324,6 +333,7 @@ void Json::parse(const std::vector<JsonToken>& tokens) {
 			break;
 		}
 		}
+
 		prev_token = token;
 	}
 }
@@ -346,3 +356,62 @@ const std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) cons
 	return it->second;
 }
 
+std::string JsonList::asString(int offset) const {
+	std::string output = "[";
+	bool contains_primitives = true;
+	char delimiter;
+	std::string indent;
+	for (auto& val : value) {
+		if (val->type() == JSON_MAP || val->type() == JSON_VECTOR) {
+			contains_primitives = false;
+			break;
+		}
+	}
+	if (contains_primitives) {
+		delimiter = ' ';
+		indent = "";
+	} 
+	else {
+		delimiter = '\n';
+		indent = std::string((offset + 1) * 4, ' ');
+	}
+	if (!value.empty()) {
+		output += delimiter;
+		for (size_t i = 0; i < value.size(); ++i) {
+			output += indent + value[i]->asString(offset + 1);
+			if (i + 1 < value.size()) output += ",";
+			output += delimiter;
+		}
+		if(!contains_primitives) output += std::string(offset * 4, ' ');
+	}
+	output += "]";
+	return output;
+}
+
+std::string JsonMap::asString(int offset) const {
+	std::string output = "{";
+	if (!value.empty()) {
+		output += "\n";
+		std::string indent((offset + 1) * 4, ' ');
+
+		size_t count = 0;
+		for (auto& [key, val] : value) {
+			output += indent + "\"" + key + "\" : " + val->asString(offset + 1);
+			if (++count < value.size()) output += ",";
+			output += "\n";
+		}
+		output += std::string(offset * 4, ' ');
+	}
+	output += "}";
+	return output;
+}
+
+std::string JsonDouble::asString(int offset) const {
+	std::string output = std::to_string(value);
+	auto last_valid = output.find_last_not_of('0') + 1;
+	if (last_valid != std::string::npos) {
+		output.erase(output.begin() + last_valid , output.end());
+		if (output.back() == '.') output.pop_back();
+	}
+	return output;
+}

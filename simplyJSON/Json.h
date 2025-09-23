@@ -81,7 +81,7 @@ namespace smpj {
 		double value;
 	public:
 		JsonDouble(const double val) : value(val) {}
-		std::string asString(int offset = 0) const override { return std::to_string(value); }
+		std::string asString(int offset = 0) const override;
 		JsonType type() const override { return JSON_DOUBLE; }
 		double getDouble() const override { return value; }
 	};
@@ -102,17 +102,7 @@ namespace smpj {
 		JsonList(const std::vector<std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonList() : value(), value_ptr(&value) {}
 		JsonType type() const override { return JSON_VECTOR; }
-		std::string asString(int offset = 0) const override {
-			std::string output;
-			output += "[";
-			for (auto& val : value) {
-				output += val->asString(offset + 1) + ", ";
-			}
-			output.pop_back();
-			output.pop_back();
-			output += "]";
-			return output;
-		}
+		std::string asString(int offset = 0) const override;
 		std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
 		std::vector<std::shared_ptr<JsonValue>>* getListPtr() const override { return value_ptr; }
 	};
@@ -124,21 +114,7 @@ namespace smpj {
 		JsonMap(const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonMap() : value(0), value_ptr(&value) {}
 		JsonType type() const override { return JSON_MAP; }
-		std::string asString(int offset = 0) const override {
-			std::string output;
-			std::string offset_str;
-			for (int i = 0; i != offset; ++i) {
-				offset_str += "    ";
-			}
-			output += "{\n";
-			for (auto& [key, val] : value) {
-				output += "\n" + offset_str + "    \"" + key + "\"" + " : " + val->asString(offset + 1) + ", ";
-			}
-			output.pop_back();
-			output.pop_back();
-			output += "\n" + offset_str + "}";
-			return output;
-		}
+		std::string asString(int offset = 0) const override;
 		const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }
 		std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const override { return value_ptr; }
 	};
