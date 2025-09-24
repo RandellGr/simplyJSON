@@ -109,7 +109,7 @@ namespace smpj {
 		JsonList(const std::vector<std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonList() : value(), value_ptr(&value) {}
 		JsonType type() const override { return JSON_VECTOR; }
-		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonList>(value); }
+		std::shared_ptr<JsonValue> clone() const override;
 		std::string asString(int offset = 0) const override;
 		std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
 		std::vector<std::shared_ptr<JsonValue>>* getListPtr() const override { return value_ptr; }
@@ -122,7 +122,7 @@ namespace smpj {
 		JsonMap(const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& val) : value(val), value_ptr(&value) {}
 		JsonMap() : value(0), value_ptr(&value) {}
 		JsonType type() const override { return JSON_MAP; }
-		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonMap>(value); }
+		std::shared_ptr<JsonValue> clone() const override;
 		std::string asString(int offset = 0) const override;
 		const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }
 		std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const override { return value_ptr; }
@@ -133,7 +133,8 @@ namespace smpj {
 	public:
 		Json(std::fstream& file_stream, const std::string& path);
 		Json(const std::string& json_as_string);
-
+		Json(const Json& other);
+		Json(Json&& other) noexcept;
 		std::shared_ptr<JsonValue>& operator[] (const std::string& key);
 		const std::shared_ptr<JsonValue>& operator[] (const std::string& key) const;
 

@@ -68,6 +68,16 @@ Json::Json(const std::string& json_string) {
 	parse(tokens);
 }
 
+Json::Json(const Json& other) {
+	root = std::dynamic_pointer_cast<JsonMap>(other.root->clone());
+}
+
+Json::Json(Json&& other) noexcept
+	: root(std::move(other.root))
+{
+	other.root = std::make_shared<JsonMap>();
+}
+
 std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	std::vector<JsonToken> tokens;
 	std::string working_buffer;
@@ -421,3 +431,18 @@ std::string JsonDouble::asString(int offset) const {
 	return output;
 }
 
+std::shared_ptr<JsonValue> JsonList::clone() const {
+	auto copy = std::make_shared<JsonList>();
+	for (auto& element : value) {
+		copy->value.push_back(element->clone());
+	}
+	return copy;
+}
+
+std::shared_ptr<JsonValue> JsonMap::clone() const {
+	auto copy = std::make_shared<JsonMap>();
+	for (auto& [key, val] : value) {
+		copy->value.emplace(key, val->clone());
+	}
+	return copy;
+}
