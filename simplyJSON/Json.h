@@ -151,6 +151,9 @@ namespace smpj {
 		std::shared_ptr<JsonValue>& operator[] (const std::string& key);
 		const std::shared_ptr<JsonValue>& operator[] (const std::string& key) const;
 
+		std::shared_ptr<JsonValue>& operator[] (size_t index);
+		const std::shared_ptr<JsonValue>& operator[] (size_t index) const;
+
 		void writeToFile(std::fstream& file_stream, const std::string& path);
 
 		std::string stringDump() const {
