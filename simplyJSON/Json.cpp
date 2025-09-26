@@ -45,6 +45,7 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 	while (it < input.size()) {
 		if (input[it] == '"') return working_buffer;
 		char current = input[it++];
+		if (current == '\n' || current == '\r') throw std::runtime_error("\\n and \\r are not allowed in string");
 		if (current == '\\') {
 			if (it >= input.size()) throw std::runtime_error("Escape sequence at the end of the string at position " + it);
 			char escaped = input[it++];
@@ -66,9 +67,9 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 	throw std::runtime_error("Unterminated string");
 }
 
-Json::Json(std::fstream& filestream, const std::string& path) {
-	root = std::make_shared<JsonMap>();
-
+Json::Json(std::fstream& filestream, const std::string& path) 
+	: root(std::make_shared<JsonMap>())
+{
 	size_t file_end;
 	std::string file_content;
 	std::vector<JsonToken> tokens;
@@ -87,11 +88,25 @@ Json::Json(std::fstream& filestream, const std::string& path) {
 	parse(tokens);
 }
 
-Json::Json(const std::string& json_string) {
-	root = std::make_shared<JsonMap>();
+Json::Json(const std::string& json_string)
+	: root(std::make_shared<JsonMap>()) 
+{
 	std::vector<JsonToken> tokens;
 
 	tokens = tokenize(json_string);
+	auto error = validate(tokens);
+	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
+	parse(tokens);
+}
+
+Json::Json(const char* string_literal) 
+	: root(std::make_shared<JsonMap>())
+{
+	std::vector<JsonToken> tokens;
+
+	tokens = tokenize(std::string(string_literal));
+	auto error = validate(tokens);
+	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
 	parse(tokens);
 }
 
@@ -105,9 +120,11 @@ Json::Json(Json&& other) noexcept
 	other.root = std::make_shared<JsonMap>();
 }
 
+Json::Json()
+	: root(std::make_shared<JsonMap>()){}
+
 std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	std::vector<JsonToken> tokens;
-	bool string_flag = false;
 
 	for (size_t i = 0; i != json_string.size(); ++i) {
 		switch (json_string[i]) {

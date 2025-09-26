@@ -139,10 +139,12 @@ namespace smpj {
 	};
 
 	class Json {
-		std::shared_ptr<JsonMap> root;
+		std::shared_ptr<JsonValue> root;
 	public:
 		Json(std::fstream& file_stream, const std::string& path);
 		Json(const std::string& json_as_string);
+		Json(const char* string_literal);
+		Json();
 		Json(const Json& other);
 		Json(Json&& other) noexcept;
 
@@ -176,6 +178,9 @@ namespace smpj {
 		}
 		else if constexpr (std::is_arithmetic_v<Decayed>) {
 			return std::make_shared<JsonDouble>(static_cast<double>(input));
+		}
+		else if constexpr (std::is_same_v<Decayed, const char*>) {
+			return std::make_shared<JsonString>(input);
 		}
 		else if constexpr (std::is_same_v<Decayed, std::string>) {
 			return std::make_shared<JsonString>(input);
