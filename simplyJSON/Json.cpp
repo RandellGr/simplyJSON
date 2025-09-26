@@ -39,6 +39,33 @@ bool is_json_number(const std::string& input) {
 	return i == input_size;
 }
 
+std::string parse_json_string(const std::string& input, size_t& it) {
+	++it;
+	std::string working_buffer;
+	while (it < input.size()) {
+		if (input[it] == '"') return working_buffer;
+		char current = input[it++];
+		if (current == '\\') {
+			if (it >= input.size()) throw std::runtime_error("Escape sequence at the end of the string at position " + it);
+			char escaped = input[it++];
+			switch (escaped) {
+			case '"':	working_buffer += '"'; break;
+			case '\\':	working_buffer += '\\'; break;
+			case '/':	working_buffer += '/'; break;
+			case 'b':	working_buffer += '\b'; break;
+			case 'f':	working_buffer += '\f'; break;
+			case 'n':	working_buffer += '\n'; break;
+			case 'r':	working_buffer += '\r'; break;
+			case 't':	working_buffer += '\t'; break;
+			case 'u':	throw std::runtime_error("Unicode escaped symbol is not supported");
+			default:	throw std::runtime_error("Invalid escape \\" + escaped);
+			}
+		}
+		else working_buffer += current;
+	}
+	throw std::runtime_error("Unterminated string");
+}
+
 Json::Json(std::fstream& filestream, const std::string& path) {
 	root = std::make_shared<JsonMap>();
 
@@ -80,10 +107,9 @@ Json::Json(Json&& other) noexcept
 
 std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	std::vector<JsonToken> tokens;
-	std::string working_buffer;
 	bool string_flag = false;
 
-	for (int i = 0; i != json_string.size(); ++i) {
+	for (size_t i = 0; i != json_string.size(); ++i) {
 		switch (json_string[i]) {
 		case '{':
 			tokens.push_back({ CBRACKETS_OPEN, "" });
@@ -101,12 +127,8 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 			tokens.push_back({ COMMA, "" });
 			break;
 		case '"':
-			string_flag = !string_flag;
-			if (tokens.back().type == QUOTATION) {
-				tokens.push_back({ LITERAL, ""});
-				tokens.push_back({ QUOTATION, "" });
-				break;
-			}
+			tokens.push_back({ QUOTATION, "" });
+			tokens.push_back({ LITERAL, parse_json_string(json_string, i) });
 			tokens.push_back({ QUOTATION, "" });
 			break;
 		case ':':
@@ -119,15 +141,10 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 			break;
 		default:
 			size_t it;
-			if (string_flag) it = json_string.find_first_of("{}[],\":\n\r\t", i);
-			else			 it = json_string.find_first_of("{}[],\":\n\r\t ", i);
-			
+			it = json_string.find_first_of("{}[],\":\n\r\t ", i);
 			if (it == std::string::npos) it = json_string.size();
-			working_buffer.resize(it - i);
-			std::copy(json_string.begin() + i, json_string.begin() + it, working_buffer.data());
+			tokens.push_back({ LITERAL, std::string(json_string.begin() + i, json_string.begin() + it)});
 			i = it - 1;
-			tokens.push_back({ LITERAL, working_buffer });
-			working_buffer.clear();
 			break;
 		}
 	}
@@ -371,6 +388,23 @@ const std::shared_ptr<JsonValue>& Json::operator[] (const std::string& key) cons
 	return it->second;
 }
 
+std::shared_ptr<JsonValue>& JsonList::operator[](size_t index) {
+	if (index >= value.size()) throw std::runtime_error("index is out of bounds");
+	return value[index];
+}
+const std::shared_ptr<JsonValue>& JsonList::operator[](size_t index) const {
+	if (index >= value.size()) throw std::runtime_error("index is out of bounds");
+	return value[index];
+}
+std::shared_ptr<JsonValue>& JsonMap::operator[] (const std::string& key) {
+	return value[key];
+}
+const std::shared_ptr<JsonValue>& JsonMap::operator[] (const std::string& key) const {
+	auto it = value.find(key);
+	if (it == value.end()) throw std::out_of_range("Key not found in JSON object");
+	return it->second;
+}
+
 std::string JsonList::asString(int offset) const {
 	std::string output = "[";
 	bool contains_primitives = true;
@@ -428,6 +462,25 @@ std::string JsonDouble::asString(int offset) const {
 		output.erase(output.begin() + last_valid , output.end());
 		if (output.back() == '.') output.pop_back();
 	}
+	return output;
+}
+
+std::string JsonString::asString(int offset) const {
+	std::string output = "\"";
+	for (char current : value) {
+		switch (current) {
+		case '\b': output += "\\b"; break;
+		case '\f': output += "\\f"; break;
+		case '\n': output += "\\n"; break;
+		case '\r': output += "\\r"; break;
+		case '\t': output += "\\t"; break;
+		case '"':  output += "\\\""; break;
+		case '\\': output += "\\\\"; break;
+		case '/':  output += "\\/"; break;
+		default:   output += current;
+		}
+	}
+	output += "\"";
 	return output;
 }
 

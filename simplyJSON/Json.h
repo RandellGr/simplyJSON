@@ -3,6 +3,7 @@
 #include "Template.h"
 
 namespace smpj {
+
 	enum JsonType
 	{
 		JSON_BOOL,
@@ -60,6 +61,11 @@ namespace smpj {
 		virtual std::string* getStringPtr() const { throw std::bad_cast(); }
 		virtual std::vector<std::shared_ptr<JsonValue>>* getListPtr() const { throw std::bad_cast(); }
 		virtual std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const { throw std::bad_cast(); }
+
+		virtual std::shared_ptr<JsonValue>& operator[](const std::string& key) { throw std::runtime_error("no [ string ] opertaor for this json value type"); }
+		virtual const std::shared_ptr<JsonValue>& operator[](const std::string& key) const { throw std::runtime_error("no [ stirng ] opertaor for this json value type"); }
+		virtual std::shared_ptr<JsonValue>& operator[](size_t index) { throw std::runtime_error("no [ index ] opertaor for this json value type"); }
+		virtual const std::shared_ptr<JsonValue>& operator[](size_t index) const { throw std::runtime_error("no [ index ] opertaor for this json value type"); }
 	};
 
 	class JsonNull : public JsonValue {
@@ -75,7 +81,7 @@ namespace smpj {
 		std::string* value_ptr = nullptr;
 	public:
 		JsonString(const std::string& val) : value(val), value_ptr(&value) {}
-		std::string asString(int offset = 0) const override { return "\"" + value + "\""; }
+		std::string asString(int offset = 0) const override;
 		JsonType type() const override { return JSON_STRING; }
 		std::shared_ptr<JsonValue> clone() const override { return std::make_shared<JsonString>(value); }
 		std::string getString() const override { return value; }
@@ -113,6 +119,8 @@ namespace smpj {
 		std::string asString(int offset = 0) const override;
 		std::vector<std::shared_ptr<JsonValue>> getList() const override { return value; }
 		std::vector<std::shared_ptr<JsonValue>>* getListPtr() const override { return value_ptr; }
+		std::shared_ptr<JsonValue>& operator[](size_t index) override;
+		const std::shared_ptr<JsonValue>& operator[](size_t index) const override;
 	};
 
 	class JsonMap : public JsonValue {
@@ -126,6 +134,8 @@ namespace smpj {
 		std::string asString(int offset = 0) const override;
 		const std::unordered_map<std::string, std::shared_ptr<JsonValue>>& getMap() const override { return value; }
 		std::unordered_map<std::string, std::shared_ptr<JsonValue>>* getMapPtr() const override { return value_ptr; }
+		std::shared_ptr<JsonValue>& operator[](const std::string& index) override;
+		const std::shared_ptr<JsonValue>& operator[](const std::string& index) const override;
 	};
 
 	class Json {
@@ -135,6 +145,7 @@ namespace smpj {
 		Json(const std::string& json_as_string);
 		Json(const Json& other);
 		Json(Json&& other) noexcept;
+
 		std::shared_ptr<JsonValue>& operator[] (const std::string& key);
 		const std::shared_ptr<JsonValue>& operator[] (const std::string& key) const;
 
