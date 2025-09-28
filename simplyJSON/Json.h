@@ -162,6 +162,7 @@ namespace smpj {
 		
 	private:
 		std::vector<JsonToken> tokenize(const std::string& json_string);
+		std::vector<JsonToken> streaming_tokenize(std::fstream& filestream);
 		void parse(const std::vector<JsonToken>& tokens);
 		Error validate(const std::vector<JsonToken>& tokens);
 	};

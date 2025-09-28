@@ -67,6 +67,33 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 	throw std::runtime_error("Unterminated string");
 }
 
+std::string parse_json_string(std::fstream& file_stream) {
+	std::string working_buffer; 
+	int current;
+	while ((current = file_stream.get()) != '"') {
+		if(current == EOF) throw std::runtime_error("Unterminated string");
+		if (current == '\n' || current == '\r') throw std::runtime_error("\\n and \\r are not allowed in string");
+		if (current == '\\') {
+			int escaped = file_stream.get();
+			if (escaped == EOF) throw std::runtime_error("Escape sequence at the end of the stream");
+			switch (escaped) {
+			case '"':	working_buffer += '"'; break;
+			case '\\':	working_buffer += '\\'; break;
+			case '/':	working_buffer += '/'; break;
+			case 'b':	working_buffer += '\b'; break;
+			case 'f':	working_buffer += '\f'; break;
+			case 'n':	working_buffer += '\n'; break;
+			case 'r':	working_buffer += '\r'; break;
+			case 't':	working_buffer += '\t'; break;
+			case 'u':	throw std::runtime_error("Unicode escaped symbol is not supported");
+			default:	throw std::runtime_error("Invalid escape \\" + static_cast<char>(escaped));
+			}
+		}
+		else working_buffer += static_cast<char>(current);
+	}
+	return working_buffer;
+}
+
 Json::Json(std::fstream& filestream, const std::string& path) 
 {
 	size_t file_end;
@@ -75,13 +102,9 @@ Json::Json(std::fstream& filestream, const std::string& path)
 
 	filestream.open(path, std::ios::in | std::ios::binary | std::ios::ate);
 	if (!filestream.is_open()) throw std::runtime_error("could not open filestream at " + path + "\n");
-	file_end = filestream.tellg();
-	filestream.seekg(0, std::ios::beg);
-	file_content.resize(file_end);
-	filestream.read(file_content.data(), file_end);
+	tokens = streaming_tokenize(filestream);
 	filestream.close();
 
-	tokens = tokenize(file_content);
 	auto error = validate(tokens);
 	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
 	if (tokens[0].type == CBRACKETS_OPEN)	   root = std::make_shared<JsonMap>();
@@ -131,6 +154,7 @@ Json::Json()
 
 std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	std::vector<JsonToken> tokens;
+	tokens.reserve(json_string.size());
 
 	for (size_t i = 0; i != json_string.size(); ++i) {
 		switch (json_string[i]) {
@@ -172,6 +196,62 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 		}
 	}
 	return tokens; 
+}
+
+std::vector<JsonToken> Json::streaming_tokenize(std::fstream& file_stream) {
+	std::vector<JsonToken> tokens;
+	size_t filestream_size = file_stream.tellg();
+	tokens.reserve(filestream_size);
+	file_stream.seekg(0, std::ios::beg);
+
+	const std::string delimiters("{}[],\":\n\r\t ");
+	int current;
+	while ((current = file_stream.get()) != EOF) {
+		switch (current) {
+		case '{':
+			tokens.push_back({ CBRACKETS_OPEN, "" });
+			break;
+		case '}':
+			tokens.push_back({ CBRACKETS_CLOSE, "" });
+			break;
+		case '[':
+			tokens.push_back({ SBRACKETS_OPEN, "" });
+			break;
+		case ']':
+			tokens.push_back({ SBRACKETS_CLOSE, "" });
+			break;
+		case ',':
+			tokens.push_back({ COMMA, "" });
+			break;
+		case '"':
+			tokens.push_back({ QUOTATION, "" });
+			tokens.push_back({ LITERAL, parse_json_string(file_stream) });
+			tokens.push_back({ QUOTATION, "" });
+			break;
+		case ':':
+			tokens.push_back({ COLON, "" });
+			break;
+		case ' ':
+		case '\n':
+		case '\r':
+		case '\t':
+			break;
+		default:
+			std::string working_buffer;
+			working_buffer += static_cast<char>(current);
+			while (true) {
+				int peeked = file_stream.peek();
+				if (peeked == EOF) break;
+				if (delimiters.find(static_cast<char>(peeked)) != std::string::npos) {
+					break;
+				}
+				working_buffer += (static_cast<char>(file_stream.get()));
+			}
+			tokens.push_back({ LITERAL, std::move(working_buffer) });
+			break;
+		}
+	}
+	return tokens;
 }
 
 Error Json::validate(const std::vector<JsonToken>& tokens) {
