@@ -34,15 +34,41 @@ namespace smpj {
 		CTX_STRING
 	};
 
+	enum JsonParseErrors {
+		JSON_NULL_EX,
+		JSON_EMPTY,
+		JSON_UNEXPECTED_SYMBOL,
+		JSON_UNEXPECTED_VALUE,
+		JSON_MISSING_SYMBOL,
+		JSON_MISSING_VALUE,
+		JSON_INVALID_LITERAL,
+		JSON_INVALID_CONTEXT,
+		JSON_INVALID_KEY,
+		JSON_INVALID_STRING,
+		JSON_OK
+	};
+
 	struct JsonToken
 	{
 		JsonTokenEnum type;
 		std::string value;
+		size_t line;
+		size_t column;
 	};
 
-	struct Error {
-		std::string what;
-		bool is_present;
+	struct ParseError {
+	public:
+		ParseError() : content(""), id(JSON_NULL_EX), position{0,0} {}
+		ParseError(JsonParseErrors _id, std::string what, int line = 0, int column = 0)
+			: content(what), id(_id), position{line, column} {
+		}
+		JsonParseErrors get_id() const { return id; }
+		std::string info() const 
+			{ return "ParseError id: " + std::to_string(id) + " - " + content + " at: " + std::to_string(position[0]) + " " + std::to_string(position[1]); }
+	private:
+		JsonParseErrors id;
+		std::string content;
+		int position[2];
 	};
 
 	class JsonValue {
@@ -141,9 +167,9 @@ namespace smpj {
 	class Json {
 		std::shared_ptr<JsonValue> root;
 	public:
-		Json(std::fstream& file_stream, const std::string& path);
-		Json(const std::string& json_as_string);
-		Json(const char* string_literal);
+		Json(std::fstream& file_stream, const std::string& path, ParseError* ParseError_ptr = nullptr);
+		Json(const std::string& json_as_string, ParseError* ParseError_ptr = nullptr);
+		Json(const char* string_literal, ParseError* ParseError_ptr = nullptr);
 		Json();
 		Json(const Json& other);
 		Json(Json&& other) noexcept;
@@ -161,10 +187,10 @@ namespace smpj {
 		};
 		
 	private:
-		std::vector<JsonToken> tokenize(const std::string& json_string);
-		std::vector<JsonToken> streaming_tokenize(std::fstream& filestream);
+		std::vector<JsonToken> tokenize(const std::string& json_string, ParseError* ParseError_ptr = nullptr);
+		std::vector<JsonToken> streaming_tokenize(std::fstream& filestream, ParseError* ParseError_ptr = nullptr);
 		void parse(const std::vector<JsonToken>& tokens);
-		Error validate(const std::vector<JsonToken>& tokens);
+		bool validate(const std::vector<JsonToken>& tokens, ParseError* ParseError_ptr = nullptr);
 	};
 
 	template<typename Type>

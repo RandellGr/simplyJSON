@@ -3,7 +3,8 @@
 
 using namespace smpj;
 
-bool is_json_number(const std::string& input) {
+bool is_json_number(const std::string& input) 
+{
 	if (input.empty()) return false;
 	size_t i = 0;
 	size_t input_size = input.size();
@@ -39,7 +40,18 @@ bool is_json_number(const std::string& input) {
 	return i == input_size;
 }
 
-std::string parse_json_string(const std::string& input, size_t& it) {
+bool isLiteralValid(const std::string& val) {
+	if (val == "true" || val == "false" || val == "null")
+		return true;
+	return is_json_number(val);
+}
+
+bool validateObject(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr);
+bool validateList(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr);
+bool validateValue(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr);
+
+std::string parse_json_string(const std::string& input, size_t& it) 
+{
 	++it;
 	std::string working_buffer;
 	while (it < input.size()) {
@@ -47,7 +59,7 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 		char current = input[it++];
 		if (current == '\n' || current == '\r') throw std::runtime_error("\\n and \\r are not allowed in string");
 		if (current == '\\') {
-			if (it >= input.size()) throw std::runtime_error("Escape sequence at the end of the string at position " + it);
+			if (it >= input.size()) throw std::runtime_error("Escape sequence at the end of the string");
 			char escaped = input[it++];
 			switch (escaped) {
 			case '"':	working_buffer += '"'; break;
@@ -59,7 +71,7 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 			case 'r':	working_buffer += '\r'; break;
 			case 't':	working_buffer += '\t'; break;
 			case 'u':	throw std::runtime_error("Unicode escaped symbol is not supported");
-			default:	throw std::runtime_error("Invalid escape \\" + escaped);
+			default:	throw std::runtime_error(std::string("Invalid escape \\") + escaped);
 			}
 		}
 		else working_buffer += current;
@@ -67,7 +79,8 @@ std::string parse_json_string(const std::string& input, size_t& it) {
 	throw std::runtime_error("Unterminated string");
 }
 
-std::string parse_json_string(std::fstream& file_stream) {
+std::string parse_json_string(std::fstream& file_stream) 
+{
 	std::string working_buffer; 
 	int current;
 	while ((current = file_stream.get()) != '"') {
@@ -86,7 +99,7 @@ std::string parse_json_string(std::fstream& file_stream) {
 			case 'r':	working_buffer += '\r'; break;
 			case 't':	working_buffer += '\t'; break;
 			case 'u':	throw std::runtime_error("Unicode escaped symbol is not supported");
-			default:	throw std::runtime_error("Invalid escape \\" + static_cast<char>(escaped));
+			default:	throw std::runtime_error(std::string("Invalid escape \\" + static_cast<char>(escaped)));
 			}
 		}
 		else working_buffer += static_cast<char>(current);
@@ -94,43 +107,59 @@ std::string parse_json_string(std::fstream& file_stream) {
 	return working_buffer;
 }
 
-Json::Json(std::fstream& filestream, const std::string& path) 
+Json::Json(std::fstream& filestream, const std::string& path, ParseError* ex_ptr)
 {
+	ParseError inner_ex;
 	size_t file_end;
 	std::string file_content;
 	std::vector<JsonToken> tokens;
 
 	filestream.open(path, std::ios::in | std::ios::binary | std::ios::ate);
 	if (!filestream.is_open()) throw std::runtime_error("could not open filestream at " + path + "\n");
-	tokens = streaming_tokenize(filestream);
+	tokens = streaming_tokenize(filestream, &inner_ex);
 	filestream.close();
+	if (inner_ex.get_id() != JSON_NULL_EX && ex_ptr != nullptr) { *ex_ptr = inner_ex; return; }
 
-	auto error = validate(tokens);
-	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
+	bool is_valid = validate(tokens, &inner_ex);
+	if (ex_ptr != nullptr) { 
+		*ex_ptr = inner_ex; 
+		if(!is_valid) return; 
+	}
+
 	if (tokens[0].type == CBRACKETS_OPEN)	   root = std::make_shared<JsonMap>();
 	else if (tokens[0].type == SBRACKETS_OPEN) root = std::make_shared<JsonList>();
 	parse(tokens);
 }
 
-Json::Json(const std::string& json_string)
+Json::Json(const std::string& json_string, ParseError* ex_ptr)
 {
 	std::vector<JsonToken> tokens;
+	ParseError inner_ex;
 
-	tokens = tokenize(json_string);
-	auto error = validate(tokens);
-	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
+	tokens = tokenize(json_string, &inner_ex);
+	if (inner_ex.get_id() != JSON_NULL_EX && ex_ptr != nullptr) { *ex_ptr = inner_ex; return; }
+	bool is_valid = validate(tokens, &inner_ex);
+	if (ex_ptr != nullptr) {
+		*ex_ptr = inner_ex;
+		if (!is_valid) return;
+	}
 	if (tokens[0].type == CBRACKETS_OPEN)	   root = std::make_shared<JsonMap>();
 	else if (tokens[0].type == SBRACKETS_OPEN) root = std::make_shared<JsonList>();
 	parse(tokens);
 }
 
-Json::Json(const char* string_literal) 
+Json::Json(const char* string_literal, ParseError* ex_ptr)
 {
 	std::vector<JsonToken> tokens;
+	ParseError inner_ex;
 
-	tokens = tokenize(std::string(string_literal));
-	auto error = validate(tokens);
-	if (error.is_present) throw std::runtime_error("JSON synthax error: " + error.what);
+	tokens = tokenize(std::string(string_literal), &inner_ex);
+	if (inner_ex.get_id() != JSON_NULL_EX && ex_ptr != nullptr) { *ex_ptr = inner_ex; return; }
+	bool is_valid = validate(tokens, &inner_ex);
+	if (ex_ptr != nullptr) {
+		*ex_ptr = inner_ex;
+		if (!is_valid) return;
+	}
 	if (tokens[0].type == CBRACKETS_OPEN)	   root = std::make_shared<JsonMap>();
 	else if (tokens[0].type == SBRACKETS_OPEN) root = std::make_shared<JsonList>();
 	parse(tokens);
@@ -152,45 +181,58 @@ Json::Json(Json&& other) noexcept
 Json::Json()
 	: root(std::make_shared<JsonMap>()){}
 
-std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
+std::vector<JsonToken> Json::tokenize(const std::string& json_string, ParseError* ex_ptr)
+{
 	std::vector<JsonToken> tokens;
 	tokens.reserve(json_string.size());
+	size_t line = 1;
+	size_t column = 1; 
 
 	for (size_t i = 0; i != json_string.size(); ++i) {
 		switch (json_string[i]) {
 		case '{':
-			tokens.push_back({ CBRACKETS_OPEN, "" });
+			tokens.push_back({ CBRACKETS_OPEN, "", line, column++ });
 			break;
 		case '}':
-			tokens.push_back({ CBRACKETS_CLOSE, "" });
+			tokens.push_back({ CBRACKETS_CLOSE, "", line, column++ });
 			break;
 		case '[':
-			tokens.push_back({ SBRACKETS_OPEN, "" });
+			tokens.push_back({ SBRACKETS_OPEN, "", line, column++ });
 			break;
 		case ']':
-			tokens.push_back({ SBRACKETS_CLOSE, "" });
+			tokens.push_back({ SBRACKETS_CLOSE, "", line, column++ });
 			break;
 		case ',':
-			tokens.push_back({ COMMA, "" });
+			tokens.push_back({ COMMA, "", line, column++ });
 			break;
 		case '"':
-			tokens.push_back({ QUOTATION, "" });
-			tokens.push_back({ LITERAL, parse_json_string(json_string, i) });
-			tokens.push_back({ QUOTATION, "" });
+			tokens.push_back({ QUOTATION, "", line, column++ });
+			try {
+				size_t start_col = column;
+				std::string str = parse_json_string(json_string, i);
+				column += str.size();
+				tokens.push_back({ LITERAL, std::move(str), line, start_col + 1 });
+			}
+			catch (std::exception& e) {
+				if (ex_ptr) *ex_ptr = ParseError(JSON_INVALID_STRING, e.what(), line, column);
+			}
+			tokens.push_back({ QUOTATION, "", line, column++ });
 			break;
 		case ':':
-			tokens.push_back({ COLON, "" });
+			tokens.push_back({ COLON, "", line, column++ });
 			break;
-		case ' ' :
 		case '\n':
+			line++;
+			column = 1;
 		case '\r':
+		case ' ':
 		case '\t':
 			break;
 		default:
 			size_t it;
 			it = json_string.find_first_of("{}[],\":\n\r\t ", i);
 			if (it == std::string::npos) it = json_string.size();
-			tokens.push_back({ LITERAL, std::string(json_string.begin() + i, json_string.begin() + it)});
+			tokens.push_back({ LITERAL, std::string(json_string.begin() + i, json_string.begin() + it), line, column++ });
 			i = it - 1;
 			break;
 		}
@@ -198,42 +240,54 @@ std::vector<JsonToken> Json::tokenize(const std::string& json_string) {
 	return tokens; 
 }
 
-std::vector<JsonToken> Json::streaming_tokenize(std::fstream& file_stream) {
+std::vector<JsonToken> Json::streaming_tokenize(std::fstream& file_stream, ParseError* ex_ptr) {
 	std::vector<JsonToken> tokens;
 	size_t filestream_size = file_stream.tellg();
 	tokens.reserve(filestream_size);
 	file_stream.seekg(0, std::ios::beg);
+	size_t line = 1;
+	size_t column = 1;
 
 	const std::string delimiters("{}[],\":\n\r\t ");
 	int current;
 	while ((current = file_stream.get()) != EOF) {
 		switch (current) {
 		case '{':
-			tokens.push_back({ CBRACKETS_OPEN, "" });
+			tokens.push_back({ CBRACKETS_OPEN, "", line, column++ });
 			break;
 		case '}':
-			tokens.push_back({ CBRACKETS_CLOSE, "" });
+			tokens.push_back({ CBRACKETS_CLOSE, "", line, column++ });
 			break;
 		case '[':
-			tokens.push_back({ SBRACKETS_OPEN, "" });
+			tokens.push_back({ SBRACKETS_OPEN, "", line, column++ });
 			break;
 		case ']':
-			tokens.push_back({ SBRACKETS_CLOSE, "" });
+			tokens.push_back({ SBRACKETS_CLOSE, "", line, column++ });
 			break;
 		case ',':
-			tokens.push_back({ COMMA, "" });
+			tokens.push_back({ COMMA, "", line, column++ });
 			break;
 		case '"':
-			tokens.push_back({ QUOTATION, "" });
-			tokens.push_back({ LITERAL, parse_json_string(file_stream) });
-			tokens.push_back({ QUOTATION, "" });
+			tokens.push_back({ QUOTATION, "", line, column++ });
+			try {
+				size_t start_col = column;
+				std::string str = parse_json_string(file_stream);
+				column += str.size();
+				tokens.push_back({ LITERAL, std::move(str), line, start_col + 1 });
+			}
+			catch (std::exception& e) {
+				if (ex_ptr) *ex_ptr = ParseError(JSON_INVALID_STRING, e.what(), line, column);
+			}
+			tokens.push_back({ QUOTATION, "", line, column++ });
 			break;
 		case ':':
-			tokens.push_back({ COLON, "" });
+			tokens.push_back({ COLON, "", line, column++ });
 			break;
-		case ' ':
 		case '\n':
+			line++;
+			column = 1;
 		case '\r':
+		case ' ':
 		case '\t':
 			break;
 		default:
@@ -247,101 +301,133 @@ std::vector<JsonToken> Json::streaming_tokenize(std::fstream& file_stream) {
 				}
 				working_buffer += (static_cast<char>(file_stream.get()));
 			}
-			tokens.push_back({ LITERAL, std::move(working_buffer) });
+			tokens.push_back({ LITERAL, std::move(working_buffer), line, column++ });
 			break;
 		}
 	}
 	return tokens;
 }
 
-Error Json::validate(const std::vector<JsonToken>& tokens) {
-	if (tokens.empty()) return { "empty input", true };
-	if (tokens[0].type != CBRACKETS_OPEN && tokens[0].type != SBRACKETS_OPEN)
-		return { "top level object is not found" , true };
-
-	std::stack<TokenContext> context;
-	bool string_flag = false;
-
-	size_t token_position = 0;
-	JsonToken prev_token;
-
-	for (JsonToken token : tokens) {
-		switch (token.type) {
-		case CBRACKETS_OPEN:
-			context.push(CTX_OBJECT);
-			break;
-		case CBRACKETS_CLOSE:
-			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
-				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE &&
-				prev_token.type != CBRACKETS_OPEN)
-				return { "value is not found at token: " + std::to_string(token_position), true };
-			if (context.top() == CTX_VALUE) context.pop();
-			if (context.top() != CTX_OBJECT) return { "object closing without opening at token: " + std::to_string(token_position), true };
-			context.pop();
-			break;
-		case SBRACKETS_OPEN:
-			context.push(CTX_LIST);
-			break;
-		case SBRACKETS_CLOSE:
-			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
-				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE &&
-				prev_token.type != SBRACKETS_OPEN)
-				return { "value is not found at token: " + std::to_string(token_position), true };
-			if (prev_token.type == COMMA) return { "trailing comma in list at token: " + std::to_string(token_position), true };
-			if (context.top() != CTX_LIST) return { "list closing without opening at token: " + std::to_string(token_position), true };
-			context.pop();
-			break;
-		case QUOTATION: {
-			auto top = context.top();
-			if (!string_flag) {
-				if (prev_token.type == QUOTATION) {
-					return { "unexpected string at token: " + std::to_string(token_position), true };
-				}
-				context.push(CTX_STRING);
-				string_flag = !string_flag;
-				break;
-			}
-			if (top != CTX_STRING) return { "closing string literal without opening at token: " + std::to_string(token_position), true };
-			context.pop();
-			string_flag = !string_flag;
-			break;
-		}
-		case COMMA: {
-			auto top = context.top();
-			if (prev_token.type != LITERAL && prev_token.type != QUOTATION &&
-				prev_token.type != CBRACKETS_CLOSE && prev_token.type != SBRACKETS_CLOSE) 
-				return { "value is not found at token: " + std::to_string(token_position), true };
-			if (top != CTX_VALUE && top != CTX_LIST) return { "inproper comma placement at token: " + std::to_string(token_position), true };
-			if (top == CTX_VALUE) {
-				context.pop();
-				context.push(CTX_KEY);
-			}
-			break;
-		}
-		case COLON: {
-			auto top = context.top();
-			if (prev_token.type != QUOTATION) return { "key is not a string at token: " + std::to_string(token_position), true };
-			if (top != CTX_KEY && top != CTX_OBJECT) return { "inproper colon placement at token: " + std::to_string(token_position), true };
-			if (top == CTX_KEY) context.pop();
-			context.push(CTX_VALUE);
-			break;
-		}
-		case LITERAL:
-			if (!string_flag && 
-			   (token.value != "false" && token.value != "true" &&
-				token.value != "null"  && !is_json_number(token.value)))
-					return { "invalid literal: " + token.value +" at token: " + std::to_string(token_position), true };
-			break;
-		}
-		token_position++;
-		prev_token = token;
+bool validateObject(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr) {
+	if (i < _tokens.size() && _tokens[i].type == CBRACKETS_CLOSE) {
+		++i;
+		return true;
 	}
-	if (context.empty()) {
-		return { "", false };
+
+	while (i < _tokens.size()) {
+		if (i + 2 >= _tokens.size()			||
+			_tokens[i].type != QUOTATION	||
+			_tokens[i + 1].type != LITERAL	||
+			_tokens[i + 2].type != QUOTATION	) 
+		{
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_INVALID_KEY, "Invalid or missing key string", _tokens[i].line, _tokens[i].column - 1);
+			return false;
+		}
+		i += 3;
+
+		if (i >= _tokens.size() || _tokens[i].type != COLON) {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_MISSING_SYMBOL, "Expected ':' after key", _tokens[i].line, _tokens[i].column - 1);
+			return false;
+		}
+		++i;
+
+		if (!validateValue(_tokens, i, ex_ptr)) return false;
+
+		if (i < _tokens.size() && _tokens[i].type == COMMA) {
+			++i;
+			continue;
+		}
+		else if (i < _tokens.size() && _tokens[i].type == CBRACKETS_CLOSE) {
+			++i;
+			return true;
+		}
+		else {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_UNEXPECTED_SYMBOL, "Expected ',' or '}' in object", _tokens[i-1].line, _tokens[i-1].column - 1);
+			return false;
+		}
 	}
-	else {
-		return { "no closing bracket found!", true };
+
+	if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_MISSING_SYMBOL, "Missing closing '}' for object", _tokens.back().line, _tokens.back().column - 1);
+	return false;
+}
+bool validateList(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr) {
+	if (i < _tokens.size() && _tokens[i].type == SBRACKETS_CLOSE) {
+		++i;
+		return true;
 	}
+
+	while (i < _tokens.size()) {
+		if (!validateValue(_tokens, i, ex_ptr)) return false;
+
+		if (i < _tokens.size() && _tokens[i].type == COMMA) {
+			++i;
+			continue;
+		}
+		else if (i < _tokens.size() && _tokens[i].type == SBRACKETS_CLOSE) {
+			++i;
+			return true;
+		}
+		else {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_UNEXPECTED_SYMBOL, "Expected ',' or ']' in list", _tokens[i-1].line, _tokens[i-1].column - 1);
+			return false;
+		}
+	}
+}
+bool validateValue(const std::vector<JsonToken>& _tokens, size_t& i, ParseError* ex_ptr) {
+	if (i >= _tokens.size()) {
+		if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_MISSING_VALUE, "Value is not found", _tokens.back().line, _tokens.back().column - 1);
+		return false;
+	}
+
+	const auto& token = _tokens[i];
+	switch (token.type) {
+	case LITERAL:
+		if (!isLiteralValid(token.value)) {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_INVALID_LITERAL, "Invalid literal: '" + token.value + "'", _tokens.back().line, _tokens.back().column - 1);
+			return false;
+		}
+		++i;
+		return true;
+	case QUOTATION:
+		if (i + 2 >= _tokens.size()) {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_INVALID_STRING, "Unterminated string literal", _tokens.back().line, _tokens.back().column - 1);
+			return false;
+		}
+		if (_tokens[i + 1].type != LITERAL || _tokens[i + 2].type != QUOTATION) {
+			if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_INVALID_STRING, "Malformed string literal", _tokens.back().line, _tokens.back().column - 1);
+			return false;
+		}
+		i += 3;
+		return true;
+	case CBRACKETS_OPEN:
+		++i;
+		return validateObject(_tokens, i, ex_ptr);
+	case SBRACKETS_OPEN:
+		++i;
+		return validateList(_tokens, i, ex_ptr);
+	default:
+		if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_UNEXPECTED_SYMBOL, "Unexpected token where expecting value", token.line, token.column - 1);
+		return false;
+	}
+}
+
+bool Json::validate(const std::vector<JsonToken>& tokens, ParseError* ex_ptr) {
+	if (tokens.empty()) {
+		if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_EMPTY, "Empty JSON input");
+		return false;
+	}
+
+	size_t i = 0;
+
+	bool ok = validateValue(tokens, i, ex_ptr);
+
+	if (ok && i != tokens.size()) {
+		if (ex_ptr != nullptr) *ex_ptr = ParseError(JSON_UNEXPECTED_SYMBOL, "Extra data after root value", tokens[i].line, tokens[i].column - 1);
+		return false;
+	}
+
+	if (ok && ex_ptr)
+		*ex_ptr = ParseError(JSON_OK, "No errors found");
 }
 
 void Json::parse(const std::vector<JsonToken>& tokens) {
