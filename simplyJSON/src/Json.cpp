@@ -1,5 +1,5 @@
 #pragma once
-#include "Json.h"
+#include <simplyjson/Json.h>
 
 using namespace smpj;
 
@@ -428,6 +428,7 @@ bool Json::validate(const std::vector<JsonToken>& tokens, ParseError* ex_ptr) {
 
 	if (ok && ex_ptr)
 		*ex_ptr = ParseError(JSON_OK, "No errors found");
+	return true;
 }
 
 void Json::parse(const std::vector<JsonToken>& tokens) {

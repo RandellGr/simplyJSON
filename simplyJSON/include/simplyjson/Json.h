@@ -1,6 +1,6 @@
 #pragma once
-#include "Common.h"
-#include "Template.h"
+#include <simplyjson/Common.h>
+#include <simplyjson/Template.h>
 
 namespace smpj {
 
